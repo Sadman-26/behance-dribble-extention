@@ -32,7 +32,8 @@
   "content_scripts": [
     {
       "matches": [
-        "https://www.behance.net/gallery/*",
+        "https://www.behance.net/*",
+        "https://*.behance.net/*",
         "https://dribbble.com/shots/*",
         "https://www.dribbble.com/shots/*",
         "https://dribbble.com/*",
