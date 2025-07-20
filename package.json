@@ -8,19 +8,24 @@
     "dev": "webpack --mode=development",
     "watch": "webpack --mode=development --watch"
   },
-  "keywords": ["chrome-extension", "behance", "dribbble", "downloader"],
+  "keywords": [
+    "chrome-extension",
+    "behance",
+    "dribbble",
+    "downloader"
+  ],
   "author": "Your Name",
   "license": "MIT",
   "devDependencies": {
-    "webpack": "^5.88.0",
-    "webpack-cli": "^5.1.4",
     "copy-webpack-plugin": "^11.0.0",
-    "html-webpack-plugin": "^5.5.3",
     "css-loader": "^6.8.1",
-    "style-loader": "^3.3.3"
+    "html-webpack-plugin": "^5.5.3",
+    "style-loader": "^3.3.3",
+    "webpack": "^5.88.0",
+    "webpack-cli": "^5.1.4"
   },
   "dependencies": {
-    "jszip": "^3.10.1",
-    "file-saver": "^2.0.5"
+    "file-saver": "^2.0.5",
+    "jszip": "^3.10.1"
   }
-} 
+}

@@ -40,6 +40,9 @@ class MediaExtractor {
       const url = window.location.href;
       let folderName;
 
+      // Always scroll to load all content before extraction
+      await this.scrollToLoadAll();
+
       if (url.includes('behance.net/gallery/')) {
         folderName = await this.extractBehanceGallery();
       } else if (url.includes('dribbble.com/shots/')) {
@@ -53,19 +56,33 @@ class MediaExtractor {
       // If no media found, try fallback extraction from entire page
       if (!this.extractedMedia.length) {
         this.log('No media found with specific extractors, trying fallback extraction');
-        
-        // Try direct page source extraction
+        // Always scroll again before fallback extraction (in case previous scroll was in a container)
+        await this.scrollToLoadAll();
         this.mediaMap = new Set();
-        
-        // Extract from all images on page
-        const allImages = document.querySelectorAll('img');
+        // Extract from all images on page, filtering avatars/icons/logos/badges/emojis/placeholders
+        const allImages = Array.from(document.querySelectorAll('img'));
         allImages.forEach(img => {
-          const src = img.src || img.dataset.src || img.getAttribute('data-src');
-          if (src && !src.includes('data:')) {
+          let srcs = [];
+          if (img.srcset) {
+            srcs = img.srcset.split(',').map(cfg => cfg.trim().split(' ')[0]);
+          }
+          [
+            img.src,
+            img.dataset?.src,
+            img.getAttribute('data-src'),
+            img.getAttribute('data-lazy-src'),
+            img.getAttribute('data-original'),
+            img.getAttribute('data-hi-res'),
+            img.getAttribute('data-retina'),
+          ].forEach(s => { if (s) srcs.push(s); });
+          // Filter out avatars/icons/logos/badges/emojis/placeholders
+          srcs = srcs.filter(src => src && !src.includes('data:') && !src.match(/avatar|icon|logo|badge|emoji|placeholder/i));
+          const best = this.pickBestQuality(srcs);
+          if (best) {
             this.extractedMedia.push({
               type: 'image',
-              url: src,
-              filename: this.getFileNameFromUrl(src)
+              url: best,
+              filename: this.getFileNameFromUrl(best)
             });
           }
         });
@@ -84,9 +101,9 @@ class MediaExtractor {
           if (matches) foundUrls = foundUrls.concat(matches);
         });
         
-        // Add unique URLs to extracted media
+        // Add unique URLs to extracted media, filtering avatars/icons/logos/badges/emojis/placeholders
         [...new Set(foundUrls)].forEach(url => {
-          if (!url.includes('avatar') && !url.includes('icon')) {
+          if (!url.match(/avatar|icon|logo|badge|emoji|placeholder/i)) {
             this.extractedMedia.push({
               type: 'image',
               url: url,
@@ -149,6 +166,28 @@ class MediaExtractor {
     window.scrollTo(0, 0);
   }
 
+  // Utility: Pick the best quality URL from a set of candidates
+  pickBestQuality(urls) {
+    if (!urls || urls.length === 0) return null;
+    // Prefer URLs with 'original', 'full', 'max', or largest dimension/size in the path
+    const qualityKeywords = ['original', 'full', 'max', '4k', 'hd', 'large'];
+    const scored = urls.map(url => {
+      let score = 0;
+      const lower = url.toLowerCase();
+      qualityKeywords.forEach((kw, i) => {
+        if (lower.includes(kw)) score += (qualityKeywords.length - i) * 10;
+      });
+      // Prefer longer URLs (often higher res)
+      score += lower.length;
+      // Prefer .png or .webp over .jpg
+      if (lower.endsWith('.png')) score += 5;
+      if (lower.endsWith('.webp')) score += 3;
+      return { url, score };
+    });
+    scored.sort((a, b) => b.score - a.score);
+    return scored[0].url;
+  }
+
   gatherMedia(div) {
     const images = Array.from(div.querySelectorAll('img'));
     const videos = Array.from(div.querySelectorAll('video source, video'));
@@ -159,29 +198,26 @@ class MediaExtractor {
 
     // Process images with expanded attribute checking
     images.forEach(img => {
-      // Check all possible image source attributes
-      let src = img.src || 
-                img.dataset.src || 
-                img.getAttribute('data-src') || 
-                img.getAttribute('data-lazy-src') ||
-                img.getAttribute('data-original') ||
-                img.getAttribute('data-hi-res') ||
-                img.getAttribute('data-retina') || 
-                '';
-                
-      // Handle srcset
-      if (img.srcset) src = this.bestSrc(img.srcset);
-      
-      // Check for valid image URL
-      if (src && !src.includes('data:') && 
-          !src.includes('avatar') && 
-          !src.includes('icon') &&
-          !src.includes('logo') &&
-          !src.includes('badge') &&
-          !src.includes('emoji') &&
-          !src.includes('placeholder')) {
-        candidates.push({ type: 'image', url: src });
+      // Collect all possible image sources
+      let srcs = [];
+      if (img.srcset) {
+        // Parse all srcset candidates
+        srcs = img.srcset.split(',').map(cfg => cfg.trim().split(' ')[0]);
       }
+      [
+        img.src,
+        img.dataset?.src,
+        img.getAttribute('data-src'),
+        img.getAttribute('data-lazy-src'),
+        img.getAttribute('data-original'),
+        img.getAttribute('data-hi-res'),
+        img.getAttribute('data-retina'),
+      ].forEach(s => { if (s) srcs.push(s); });
+      // Filter out avatars/icons/logos/badges/emojis/placeholders
+      srcs = srcs.filter(src => src && !src.includes('data:') && !src.match(/avatar|icon|logo|badge|emoji|placeholder/i));
+      // Pick the best quality
+      const best = this.pickBestQuality(srcs);
+      if (best) candidates.push({ type: 'image', url: best });
     });
 
     // Process videos
@@ -273,6 +309,46 @@ class MediaExtractor {
     await this.scrollToLoadAll();
     this.mediaMap = new Set();
     this.extractMediaFromList(this.gatherMedia(this.projectModules));
+    // Try to extract original images from embedded JSON (Behance)
+    try {
+      const scripts = Array.from(document.querySelectorAll('script')).map(s => s.textContent);
+      // Look for window.__INITIAL_STATE__ or similar
+      const initialStateScript = scripts.find(s => s.includes('original_url') || s.includes('modules') || s.includes('projectModules'));
+      if (initialStateScript) {
+        // Try to extract JSON
+        const jsonMatch = initialStateScript.match(/window\.__INITIAL_STATE__\s*=\s*(\{[\s\S]*?\});/);
+        let json = null;
+        if (jsonMatch) {
+          try { json = JSON.parse(jsonMatch[1]); } catch {}
+        } else {
+          // Try to find JSON object in script
+          const curly = initialStateScript.indexOf('{');
+          if (curly !== -1) {
+            try { json = JSON.parse(initialStateScript.slice(curly, initialStateScript.lastIndexOf('}')+1)); } catch {}
+          }
+        }
+        if (json) {
+          // Look for original image URLs in modules
+          const urls = [];
+          const findUrls = obj => {
+            if (!obj || typeof obj !== 'object') return;
+            for (const k in obj) {
+              if (typeof obj[k] === 'string' && obj[k].match(/^https?:\/\/.+\.(jpg|jpeg|png|webp|gif)$/i)) {
+                if (obj[k].toLowerCase().includes('original') || obj[k].toLowerCase().includes('full')) {
+                  urls.push(obj[k]);
+                }
+              } else if (typeof obj[k] === 'object') {
+                findUrls(obj[k]);
+              }
+            }
+          };
+          findUrls(json);
+          urls.forEach(url => {
+            this.extractMediaFromList([{ type: 'image', url }]);
+          });
+        }
+      }
+    } catch (e) { this.log('Behance JSON parse error', e); }
     this.log('Found', this.extractedMedia.length, 'items');
     
     // If no media found, try the entire page
@@ -297,6 +373,46 @@ class MediaExtractor {
     await this.scrollToLoadAll();
     this.mediaMap = new Set();
     this.extractMediaFromList(this.gatherMedia(this.projectModules));
+    // Try to extract original images from embedded JSON (Dribbble)
+    try {
+      const scripts = Array.from(document.querySelectorAll('script')).map(s => s.textContent);
+      // Look for window.__PRELOADED_STATE__ or similar
+      const preloadScript = scripts.find(s => s.includes('original') || s.includes('full') || s.includes('images')); // heuristic
+      if (preloadScript) {
+        // Try to extract JSON
+        const jsonMatch = preloadScript.match(/window\.__PRELOADED_STATE__\s*=\s*(\{[\s\S]*?\});/);
+        let json = null;
+        if (jsonMatch) {
+          try { json = JSON.parse(jsonMatch[1]); } catch {}
+        } else {
+          // Try to find JSON object in script
+          const curly = preloadScript.indexOf('{');
+          if (curly !== -1) {
+            try { json = JSON.parse(preloadScript.slice(curly, preloadScript.lastIndexOf('}')+1)); } catch {}
+          }
+        }
+        if (json) {
+          // Look for original image URLs
+          const urls = [];
+          const findUrls = obj => {
+            if (!obj || typeof obj !== 'object') return;
+            for (const k in obj) {
+              if (typeof obj[k] === 'string' && obj[k].match(/^https?:\/\/.+\.(jpg|jpeg|png|webp|gif)$/i)) {
+                if (obj[k].toLowerCase().includes('original') || obj[k].toLowerCase().includes('full')) {
+                  urls.push(obj[k]);
+                }
+              } else if (typeof obj[k] === 'object') {
+                findUrls(obj[k]);
+              }
+            }
+          };
+          findUrls(json);
+          urls.forEach(url => {
+            this.extractMediaFromList([{ type: 'image', url }]);
+          });
+        }
+      }
+    } catch (e) { this.log('Dribbble JSON parse error', e); }
     this.log('Found', this.extractedMedia.length, 'items');
 
     return this.sanitizeFilename(
