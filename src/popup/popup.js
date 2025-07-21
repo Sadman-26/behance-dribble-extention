@@ -10,10 +10,41 @@ class PopupController {
     this.init();
   }
 
-  init() {
+  async init() {
+    await this.setupToggle();
     this.bindEvents();
     this.checkCurrentPage();
     this.listenForProgress();
+  }
+
+  async setupToggle() {
+    const toggle = document.getElementById('toggleExtension');
+    const label = document.getElementById('toggleLabel');
+    // Get state from storage (default: on)
+    const { extensionEnabled } = await chrome.storage.local.get({ extensionEnabled: true });
+    toggle.checked = extensionEnabled;
+    label.textContent = extensionEnabled ? 'Extension On' : 'Extension Off';
+    this.setToggleUI(extensionEnabled);
+    toggle.addEventListener('change', async (e) => {
+      const enabled = toggle.checked;
+      await chrome.storage.local.set({ extensionEnabled: enabled });
+      label.textContent = enabled ? 'Extension On' : 'Extension Off';
+      this.setToggleUI(enabled);
+    });
+  }
+
+  setToggleUI(enabled) {
+    const downloadBtn = document.getElementById('downloadBtn');
+    const cancelBtn = document.getElementById('cancelBtn');
+    if (!enabled) {
+      downloadBtn.disabled = true;
+      cancelBtn.disabled = true;
+      this.updateStatus('Extension is OFF. Turn it on to enable downloads.', 'error');
+    } else {
+      downloadBtn.disabled = false;
+      cancelBtn.disabled = false;
+      this.updateStatus('Ready to download media from current page');
+    }
   }
   
   listenForProgress() {

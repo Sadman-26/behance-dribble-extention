@@ -1,4 +1,4 @@
-// Content script for Behance & Dribbble Downloader — optimized & refactored
+// Content script for Behance & Dribbble Downloader — improved with on/off toggle
 
 class MediaExtractor {
   constructor() {
@@ -16,12 +16,18 @@ class MediaExtractor {
 
   init() {
     this.log('Initialized on', window.location.href);
-    chrome.runtime.onMessage.addListener((req, sender, send) => {
+    chrome.runtime.onMessage.addListener(async (req, sender, send) => {
       this.log('Received message:', req);
       if (req.action === 'test') {
         return send({ success: true });
       }
       if (req.action === 'extractMedia') {
+        // Check if extension is enabled
+        const { extensionEnabled } = await chrome.storage.local.get({ extensionEnabled: true });
+        if (!extensionEnabled) {
+          send({ success: false, message: 'Extension is OFF' });
+          return true;
+        }
         this.extractAllMedia().then(send).catch(err => send({ success: false, message: err.message }));
         return true;
       }
@@ -86,7 +92,6 @@ class MediaExtractor {
             });
           }
         });
-        
         // Extract from page source for Behance/Dribbble specific patterns
         const pageSource = document.documentElement.outerHTML;
         const imageUrlPatterns = [
@@ -94,13 +99,11 @@ class MediaExtractor {
           /https:\/\/[^"']*images[^"']*\/[^"']+/g,
           /https:\/\/[^"']*media[^"']*\/[^"']+/g
         ];
-        
         let foundUrls = [];
         imageUrlPatterns.forEach(pattern => {
           const matches = pageSource.match(pattern);
           if (matches) foundUrls = foundUrls.concat(matches);
         });
-        
         // Add unique URLs to extracted media, filtering avatars/icons/logos/badges/emojis/placeholders
         [...new Set(foundUrls)].forEach(url => {
           if (!url.match(/avatar|icon|logo|badge|emoji|placeholder/i)) {
@@ -111,7 +114,6 @@ class MediaExtractor {
             });
           }
         });
-        
         // Remove duplicates
         this.extractedMedia = [...new Map(this.extractedMedia.map(item => 
           [item.url, item])).values()];
@@ -146,26 +148,6 @@ class MediaExtractor {
       }
     });
   }
-  bestSrc(srcset) {
-    return srcset
-      .split(',')
-      .map(cfg => cfg.trim().split(' '))
-      .sort((a, b) => (b[1]?.endsWith('w') ? parseInt(b[1]) : 0) - (a[1]?.endsWith('w') ? parseInt(a[1]) : 0))
-      .map(p => p[0])[0];
-  }
-
-  async scrollToLoadAll(maxAttempts = 30, stepDelay = 800) {
-    let lastHeight = document.body.scrollHeight;
-    for (let i = 0; i < maxAttempts; i++) {
-      window.scrollBy(0, window.innerHeight * 0.7);
-      await new Promise(r => setTimeout(r, stepDelay));
-      const newH = document.body.scrollHeight;
-      if (newH === lastHeight) break;
-      lastHeight = newH;
-    }
-    window.scrollTo(0, 0);
-  }
-
   // Utility: Pick the best quality URL from a set of candidates
   pickBestQuality(urls) {
     if (!urls || urls.length === 0) return null;
@@ -186,6 +168,18 @@ class MediaExtractor {
     });
     scored.sort((a, b) => b.score - a.score);
     return scored[0].url;
+  }
+
+  async scrollToLoadAll(maxAttempts = 30, stepDelay = 800) {
+    let lastHeight = document.body.scrollHeight;
+    for (let i = 0; i < maxAttempts; i++) {
+      window.scrollBy(0, window.innerHeight * 0.7);
+      await new Promise(r => setTimeout(r, stepDelay));
+      const newH = document.body.scrollHeight;
+      if (newH === lastHeight) break;
+      lastHeight = newH;
+    }
+    window.scrollTo(0, 0);
   }
 
   gatherMedia(div) {
@@ -277,58 +271,44 @@ class MediaExtractor {
   // Behance
   async extractBehanceGallery() {
     this.log('Behance gallery mode');
-    
     // Try multiple possible container selectors for modern Behance layouts
     const possibleContainers = [
-      // Traditional container
       document.getElementById('project-modules'),
-      
-      // Modern Behance containers
       document.querySelector('.Project-projectModules'),
       document.querySelector('.project-module-container'),
       document.querySelector('[data-id="project-modules"]'),
       document.querySelector('[data-testid="project-modules"]'),
       document.querySelector('[class*="ProjectModule"]'),
       document.querySelector('[class*="projectModule"]'),
-      
-      // Generic containers
       document.querySelector('main'),
       document.querySelector('.gallery-content'),
       document.querySelector('.project-content'),
       document.querySelector('.content-wrapper')
     ];
-    
-    // Find the first valid container
     this.projectModules = possibleContainers.find(container => container !== null);
-    
     if (!this.projectModules) {
       this.log('No specific container found, using document.body');
       this.projectModules = document.body;
     }
-
     await this.scrollToLoadAll();
     this.mediaMap = new Set();
     this.extractMediaFromList(this.gatherMedia(this.projectModules));
     // Try to extract original images from embedded JSON (Behance)
     try {
       const scripts = Array.from(document.querySelectorAll('script')).map(s => s.textContent);
-      // Look for window.__INITIAL_STATE__ or similar
       const initialStateScript = scripts.find(s => s.includes('original_url') || s.includes('modules') || s.includes('projectModules'));
       if (initialStateScript) {
-        // Try to extract JSON
         const jsonMatch = initialStateScript.match(/window\.__INITIAL_STATE__\s*=\s*(\{[\s\S]*?\});/);
         let json = null;
         if (jsonMatch) {
           try { json = JSON.parse(jsonMatch[1]); } catch {}
         } else {
-          // Try to find JSON object in script
           const curly = initialStateScript.indexOf('{');
           if (curly !== -1) {
             try { json = JSON.parse(initialStateScript.slice(curly, initialStateScript.lastIndexOf('}')+1)); } catch {}
           }
         }
         if (json) {
-          // Look for original image URLs in modules
           const urls = [];
           const findUrls = obj => {
             if (!obj || typeof obj !== 'object') return;
@@ -350,14 +330,11 @@ class MediaExtractor {
       }
     } catch (e) { this.log('Behance JSON parse error', e); }
     this.log('Found', this.extractedMedia.length, 'items');
-    
-    // If no media found, try the entire page
     if (this.extractedMedia.length === 0) {
       this.log('No media found in container, trying whole page');
       this.projectModules = document.body;
       this.extractMediaFromList(this.gatherMedia(document.body));
     }
-
     return this.sanitizeFilename(
       (document.querySelector('.owner-name')?.innerText || 'behance') +
       '-' + (window.location.pathname.split('/').pop() || 'gallery')
@@ -369,30 +346,25 @@ class MediaExtractor {
     this.log('Dribbble shot mode');
     this.projectModules = document.querySelector('.shot-content, .shot-container');
     if (!this.projectModules) throw new Error('Not a Dribbble shot page');
-
     await this.scrollToLoadAll();
     this.mediaMap = new Set();
     this.extractMediaFromList(this.gatherMedia(this.projectModules));
     // Try to extract original images from embedded JSON (Dribbble)
     try {
       const scripts = Array.from(document.querySelectorAll('script')).map(s => s.textContent);
-      // Look for window.__PRELOADED_STATE__ or similar
-      const preloadScript = scripts.find(s => s.includes('original') || s.includes('full') || s.includes('images')); // heuristic
+      const preloadScript = scripts.find(s => s.includes('original') || s.includes('full') || s.includes('images'));
       if (preloadScript) {
-        // Try to extract JSON
         const jsonMatch = preloadScript.match(/window\.__PRELOADED_STATE__\s*=\s*(\{[\s\S]*?\});/);
         let json = null;
         if (jsonMatch) {
           try { json = JSON.parse(jsonMatch[1]); } catch {}
         } else {
-          // Try to find JSON object in script
           const curly = preloadScript.indexOf('{');
           if (curly !== -1) {
             try { json = JSON.parse(preloadScript.slice(curly, preloadScript.lastIndexOf('}')+1)); } catch {}
           }
         }
         if (json) {
-          // Look for original image URLs
           const urls = [];
           const findUrls = obj => {
             if (!obj || typeof obj !== 'object') return;
@@ -414,7 +386,6 @@ class MediaExtractor {
       }
     } catch (e) { this.log('Dribbble JSON parse error', e); }
     this.log('Found', this.extractedMedia.length, 'items');
-
     return this.sanitizeFilename(
       (document.querySelector('.shot-user-name')?.innerText || 'dribbble') +
       '-' + (window.location.pathname.split('/shots/')[1] || 'shot')
@@ -429,7 +400,6 @@ class MediaExtractor {
     this.mediaMap = new Set();
     this.extractMediaFromList(this.gatherMedia(this.projectModules));
     this.log('Found', this.extractedMedia.length, 'items');
-
     const user = window.location.pathname.split('/')[1] || 'dribbble-user';
     return this.sanitizeFilename(`${user}-portfolio`);
   }
@@ -442,7 +412,6 @@ class MediaExtractor {
     this.mediaMap = new Set();
     this.extractMediaFromList(this.gatherMedia(this.projectModules));
     this.log('Found', this.extractedMedia.length, 'items');
-
     const n = window.location.pathname.split('/').filter(p => p).join('-') || 'page';
     return this.sanitizeFilename(`page-${n}`);
   }
@@ -450,4 +419,4 @@ class MediaExtractor {
 
 // Kick it off
 new MediaExtractor();
-console.log('MediaExtractor content script loaded.');
+console.log('MediaExtractor content script loaded.'); 

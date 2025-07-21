@@ -35,6 +35,12 @@ class BackgroundService {
 
   async handleMessage(request, sender, sendResponse) {
     try {
+      // Check if extension is enabled
+      const { extensionEnabled } = await chrome.storage.local.get({ extensionEnabled: true });
+      if (!extensionEnabled && request.action !== 'downloadProgress') {
+        sendResponse({ error: 'Extension is OFF' });
+        return;
+      }
       switch (request.action) {
         case 'checkPage':
           // If URL is provided directly, use that, otherwise use the sender tab's URL
