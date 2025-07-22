@@ -7,7 +7,7 @@ class PopupController {
     this.downloadedFiles = 0;
     this.totalFiles = 0;
     this.zip = null;
-    this.init();
+    // Do not call this.init() here
   }
 
   init() {
@@ -29,9 +29,30 @@ class PopupController {
   bindEvents() {
     const downloadBtn = document.getElementById('downloadBtn');
     const cancelBtn = document.getElementById('cancelBtn');
+    const siteAccessToggle = document.getElementById('siteAccessToggle');
 
     downloadBtn.addEventListener('click', () => this.startDownload());
     cancelBtn.addEventListener('click', () => this.cancelDownload());
+
+    // Toggle site access logic
+    siteAccessToggle.addEventListener('change', (e) => {
+      const enabled = e.target.checked;
+      chrome.storage.sync.set({ siteAccessEnabled: enabled }, () => {
+        this.updateSiteAccessUI(enabled);
+        // Notify background to update icon
+        chrome.runtime.sendMessage({ action: 'updateSiteAccessIcon', enabled });
+      });
+    });
+
+    // Restore site access toggle state on popup load
+    chrome.storage.sync.get(['siteAccessEnabled'], (result) => {
+      // Default to OFF (false) if not set
+      const enabled = result.siteAccessEnabled === true;
+      siteAccessToggle.checked = enabled;
+      this.updateSiteAccessUI(enabled);
+      // Notify background to update icon on popup load
+      chrome.runtime.sendMessage({ action: 'updateSiteAccessIcon', enabled });
+    });
   }
 
   async checkCurrentPage() {
@@ -73,6 +94,17 @@ class PopupController {
   }
 
   async startDownload() {
+    // Check site access before proceeding
+    const enabled = await new Promise(resolve => {
+      chrome.storage.sync.get(['siteAccessEnabled'], result => {
+        resolve(result.siteAccessEnabled === true);
+      });
+    });
+    if (!enabled) {
+      this.updateStatus('Site access is disabled. Enable to use downloader.', 'error');
+      return;
+    }
+
     if (this.isDownloading) return;
 
     this.isDownloading = true;
@@ -150,13 +182,29 @@ class PopupController {
 
   async downloadAllMedia(media, thirdPartyVideos, folderName) {
     this.zip = new JSZip();
-    this.totalFiles = media.length + (thirdPartyVideos.length > 0 ? 1 : 0);
+    this.totalFiles = media.length + (thirdPartyVideos.length > 0 ? 1 : 0) + 1; // +1 for page-url.txt
     this.downloadedFiles = 0;
 
     this.updateStatus(`Downloading ${media.length} media files...`, 'loading');
     this.updateProgressLabel(`Downloading media files (0/${this.totalFiles})`);
 
     try {
+      // Add current page URL to zip
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      const pageUrl = tab.url || '';
+      this.zip.file('page-url.txt', pageUrl);
+      this.downloadedFiles++;
+      this.updateProgress();
+      this.updateProgressLabel(`Downloading media files (${this.downloadedFiles}/${this.totalFiles})`);
+      chrome.runtime.sendMessage({
+        action: 'downloadProgress',
+        progress: {
+          current: this.downloadedFiles,
+          total: this.totalFiles,
+          percentage: (this.downloadedFiles / this.totalFiles) * 100
+        }
+      });
+
       // Create third-party videos text file if any exist
       if (thirdPartyVideos.length > 0) {
         console.log(`Creating third-party videos text file with ${thirdPartyVideos.length} URLs`);
@@ -465,9 +513,21 @@ class PopupController {
       cancelBtn.style.display = 'none';
     }
   }
+
+  updateSiteAccessUI(enabled) {
+    const downloadBtn = document.getElementById('downloadBtn');
+    if (!enabled) {
+      downloadBtn.disabled = true;
+      this.updateStatus('Site access is disabled. Enable to use downloader.', 'error');
+    } else {
+      // Only re-enable if on a supported page
+      this.checkCurrentPage();
+    }
+  }
 }
 
 // Initialize popup controller when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-  new PopupController();
+  const controller = new PopupController();
+  controller.init();
 }); 

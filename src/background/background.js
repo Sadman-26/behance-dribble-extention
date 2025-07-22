@@ -48,6 +48,12 @@ class BackgroundService {
           this.updateDownloadProgress(request.progress);
           break;
 
+        case 'updateSiteAccessIcon':
+          // Set icon based on site access state
+          this.setSiteAccessIcon(request.enabled);
+          sendResponse({ success: true });
+          break;
+
         default:
           sendResponse({ error: 'Unknown action' });
       }
@@ -55,6 +61,21 @@ class BackgroundService {
       console.error('Background script error:', error);
       sendResponse({ error: error.message });
     }
+  }
+
+  setSiteAccessIcon(enabled) {
+    const iconPath = enabled
+      ? {
+          16: 'icons/icon16.png',
+          48: 'icons/icon48.png',
+          128: 'icons/icon128.png'
+        }
+      : {
+          16: 'icons/icon16_gray.png',
+          48: 'icons/icon48_gray.png',
+          128: 'icons/icon128_gray.png'
+        };
+    chrome.action.setIcon({ path: iconPath });
   }
 
   isSupportedPage(url) {
