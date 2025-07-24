@@ -1,5 +1,6 @@
 // Import JSZip for creating ZIP files
 import JSZip from 'jszip';
+import * as XLSX from 'xlsx';
 
 class PopupController {
   constructor() {
@@ -205,17 +206,39 @@ class PopupController {
         }
       });
 
-      // Create third-party videos text file if any exist
+      // Create third-party videos Excel file if any exist
       if (thirdPartyVideos.length > 0) {
-        console.log(`Creating third-party videos text file with ${thirdPartyVideos.length} URLs`);
+        console.log(`Creating third-party videos Excel file with ${thirdPartyVideos.length} URLs`);
         
-        const videoListContent = thirdPartyVideos.map((url, index) => 
-          `${index + 1}. ${url}`
-        ).join('\n');
+        // Create worksheet data
+        const worksheetData = [
+          ['#', 'Video URL', 'Platform'], // Header row
+          ...thirdPartyVideos.map((url, index) => {
+            const platform = this.getVideoPlatform(url);
+            return [index + 1, url, platform];
+          })
+        ];
         
-        console.log('Third-party videos file content:', videoListContent);
+        // Create workbook and worksheet
+        const workbook = XLSX.utils.book_new();
+        const worksheet = XLSX.utils.aoa_to_sheet(worksheetData);
         
-        this.zip.file('third-party-videos.txt', videoListContent);
+        // Set column widths
+        worksheet['!cols'] = [
+          { width: 5 },  // #
+          { width: 80 }, // Video URL
+          { width: 15 }  // Platform
+        ];
+        
+        // Add worksheet to workbook
+        XLSX.utils.book_append_sheet(workbook, worksheet, 'Third-Party Videos');
+        
+        // Generate Excel file as buffer
+        const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+        
+        console.log('Third-party videos Excel file created');
+        
+        this.zip.file('third-party-videos.xlsx', excelBuffer);
         this.downloadedFiles++;
         this.updateProgress();
         this.updateProgressLabel(`Downloading media files (${this.downloadedFiles}/${this.totalFiles})`);
@@ -230,7 +253,7 @@ class PopupController {
           }
         });
       } else {
-        console.log('No third-party videos found, skipping text file creation');
+        console.log('No third-party videos found, skipping Excel file creation');
       }
 
       // Download all media files
@@ -522,6 +545,23 @@ class PopupController {
     } else {
       // Only re-enable if on a supported page
       this.checkCurrentPage();
+    }
+  }
+
+  // Helper method to identify video platform from URL
+  getVideoPlatform(url) {
+    if (url.includes('youtube.com') || url.includes('youtu.be')) {
+      return 'YouTube';
+    } else if (url.includes('vimeo.com')) {
+      return 'Vimeo';
+    } else if (url.includes('dailymotion.com')) {
+      return 'Dailymotion';
+    } else if (url.includes('twitch.tv')) {
+      return 'Twitch';
+    } else if (url.includes('player.')) {
+      return 'Player';
+    } else {
+      return 'Other';
     }
   }
 }

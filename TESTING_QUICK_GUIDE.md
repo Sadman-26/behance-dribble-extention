@@ -54,7 +54,7 @@ npm run build
 - **ZIP file** with proper naming (username-work-name)
 - **High-quality images** (JPG, PNG, WebP, etc.)
 - **Video files** (MP4, WebM)
-- **third-party-videos.txt** (if applicable)
+- **third-party-videos.xlsx** (if applicable)
 
 ### Error Handling
 - **"No media found"** on unsupported pages

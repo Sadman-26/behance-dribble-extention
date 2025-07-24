@@ -49,7 +49,7 @@
 
 #### Test Third-Party Videos
 1. Find a portfolio with embedded YouTube/Vimeo videos
-2. Download and verify `third-party-videos.txt` is created
+2. Download and verify `third-party-videos.xlsx` is created
 3. Check that URLs are properly listed
 
 ### 3. UI/UX Tests
@@ -83,7 +83,7 @@
 - [ ] Auto-scrolling works for lazy loading
 - [ ] Images are extracted from project-modules div only
 - [ ] Videos are extracted properly
-- [ ] Third-party videos create text file
+- [ ] Third-party videos create Excel file
 - [ ] ZIP file downloads with correct name
 - [ ] Progress tracking works
 - [ ] Cancel functionality works

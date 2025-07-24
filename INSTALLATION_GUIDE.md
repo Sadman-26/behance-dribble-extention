@@ -94,7 +94,7 @@ This Chrome extension allows you to download all images and videos from Behance 
 ### File Types
 - **Images**: JPG, PNG, GIF, WebP, SVG
 - **Videos**: MP4, WebM
-- **Third-party videos**: URLs saved in `third-party-videos.txt`
+- **Third-party videos**: URLs saved in `third-party-videos.xlsx` (Excel format)
 
 ## 🔧 Technical Details
 

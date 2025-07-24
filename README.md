@@ -54,7 +54,7 @@ npm run watch      # Watch for changes and auto-rebuild
 
 4. **Wait for completion**
    - All media will be downloaded as a ZIP file
-   - Third-party videos will be listed in a `third-party-videos.txt` file
+   - Third-party videos will be listed in a `third-party-videos.xlsx` file (Excel format)
    - The ZIP file will be named `username-work-name.zip`
 
 ## How It Works
@@ -72,11 +72,11 @@ username-work-name.zip
 ├── image2.png
 ├── video1.mp4
 ├── background-image.jpg
-└── third-party-videos.txt (if any)
+└── third-party-videos.xlsx (if any)
 ```
 
 ### Third-Party Videos
-For embedded videos from YouTube, Vimeo, or other platforms, the extension creates a text file with all video URLs that you can use to download manually.
+For embedded videos from YouTube, Vimeo, or other platforms, the extension creates an Excel file (XLSX) with all video URLs organized in a table format. The file includes columns for numbering, video URLs, and platform identification (YouTube, Vimeo, etc.) for easy reference and manual download.
 
 ## Supported Sites
 
